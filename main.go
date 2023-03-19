@@ -250,7 +250,6 @@ var (
 			})
 
 			message, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-				Content:    "@frostfire",
 				Components: msgComponents,
 				Embeds:     []*discordgo.MessageEmbed{newLFG.GenerateEmbed()},
 			})
