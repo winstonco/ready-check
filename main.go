@@ -3,7 +3,6 @@
 package main
 
 import (
-	"container/list"
 	"flag"
 	"fmt"
 	"log"
@@ -33,24 +32,35 @@ func init() {
 	}
 }
 
+type YesInType struct {
+	name string
+	time string
+}
+
 type LFG struct {
 	Game      string
 	Time      string
 	NumPeople uint8
 	CreatedBy string
-	SaidYes   *list.List
-	SaidNo    *list.List
+	SaidYes   []string
+	SaidYesIn []YesInType
+	SaidNo    []string
 }
 
 func (lfg *LFG) ClearName(username string) {
-	for e := lfg.SaidYes.Front(); e != nil; e = e.Next() {
-		if e.Value == username {
-			lfg.SaidYes.Remove(e)
+	for i, e := range lfg.SaidYes {
+		if e == username {
+			lfg.SaidYes = append(lfg.SaidYes[:i], lfg.SaidYes[i+1:]...)
 		}
 	}
-	for e := lfg.SaidNo.Front(); e != nil; e = e.Next() {
-		if e.Value == username {
-			lfg.SaidNo.Remove(e)
+	for i, e := range lfg.SaidNo {
+		if e == username {
+			lfg.SaidNo = append(lfg.SaidNo[:i], lfg.SaidNo[i+1:]...)
+		}
+	}
+	for i, e := range lfg.SaidYesIn {
+		if e.name == username {
+			lfg.SaidYesIn = append(lfg.SaidYesIn[:i], lfg.SaidYesIn[i+1:]...)
 		}
 	}
 }
@@ -58,13 +68,23 @@ func (lfg *LFG) ClearName(username string) {
 func (lfg *LFG) AddYes(username string) {
 	lfg.ClearName(username)
 	if lfg.CreatedBy != username {
-		lfg.SaidYes.PushBack(username)
+		lfg.SaidYes = append(lfg.SaidYes, username)
 	}
 }
 
 func (lfg *LFG) AddNo(username string) {
 	lfg.ClearName(username)
-	lfg.SaidNo.PushBack(username)
+	lfg.SaidNo = append(lfg.SaidNo, username)
+}
+
+func (lfg *LFG) AddYesIn(username string, time string) {
+	lfg.ClearName(username)
+	if lfg.CreatedBy != username {
+		lfg.SaidYesIn = append(lfg.SaidYesIn, YesInType{
+			name: username,
+			time: time,
+		})
+	}
 }
 
 func (lfg *LFG) GenerateEmbed() *discordgo.MessageEmbed {
@@ -90,17 +110,20 @@ func (lfg *LFG) Desc() string {
 			res += fmt.Sprintf("Requires %d more people", lfg.NumPeople)
 		}
 
-		if lfg.SaidYes.Len() >= int(lfg.NumPeople) {
+		if len(lfg.SaidYes) >= int(lfg.NumPeople) {
 			res += " | Ready!\n"
 		} else {
 			res += " | Not enough people!\n"
 		}
 	}
-	if lfg.SaidYes.Len() > 0 {
+	if len(lfg.SaidYes) > 0 || len(lfg.SaidYesIn) > 0 {
 		res += "---\n"
 	}
-	for e := lfg.SaidYes.Front(); e != nil; e = e.Next() {
-		res += fmt.Sprintf("%s is ready!\n", e.Value)
+	for _, e := range lfg.SaidYes {
+		res += fmt.Sprintf("%s is ready!\n", e)
+	}
+	for _, e := range lfg.SaidYesIn {
+		res += fmt.Sprintf("%s is ready in %s!\n", e.name, e.time)
 	}
 	return res
 }
@@ -118,20 +141,28 @@ var msgComponents = []discordgo.MessageComponent{
 	discordgo.ActionsRow{
 		Components: []discordgo.MessageComponent{
 			discordgo.Button{
+				CustomID: "yes",
 				Emoji: discordgo.ComponentEmoji{
 					Name: "👍",
 				},
-				Label:    "Ready!",
-				Style:    discordgo.SuccessButton,
-				CustomID: "yes",
+				Label: "Yes!",
+				Style: discordgo.SuccessButton,
 			},
 			discordgo.Button{
+				CustomID: "no",
 				Emoji: discordgo.ComponentEmoji{
 					Name: "👎",
 				},
-				Label:    "Not Ready!",
-				Style:    discordgo.DangerButton,
-				CustomID: "no",
+				Label: "No!",
+				Style: discordgo.DangerButton,
+			},
+			discordgo.Button{
+				CustomID: "yes-in",
+				Emoji: discordgo.ComponentEmoji{
+					Name: "⏳",
+				},
+				Label: "Ready in...",
+				Style: discordgo.SecondaryButton,
 			},
 		},
 	},
@@ -185,6 +216,31 @@ var (
 				panic(err)
 			}
 		},
+		"yes-in": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseModal,
+				Data: &discordgo.InteractionResponseData{
+					CustomID: "ready-in-modal",
+					Title:    "Ready in...",
+					Components: []discordgo.MessageComponent{
+						discordgo.ActionsRow{
+							Components: []discordgo.MessageComponent{
+								discordgo.TextInput{
+									CustomID:    "ready-in-input",
+									Label:       "How long?",
+									Style:       discordgo.TextInputShort,
+									Placeholder: "10 min",
+									Required:    true,
+								},
+							},
+						},
+					},
+				},
+			})
+			if err != nil {
+				panic(err)
+			}
+		},
 		"no": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			messageID := i.Message.ID
 			log.Printf("handler messageID: %s\n", messageID)
@@ -221,13 +277,12 @@ var (
 				Time:      "Now",
 				NumPeople: 0,
 				CreatedBy: getUserName(i.Member),
-				SaidYes:   list.New(),
-				SaidNo:    list.New(),
+				SaidYes:   make([]string, 0),
+				SaidNo:    make([]string, 0),
+				SaidYesIn: make([]YesInType, 0),
 			}
 
 			if option, ok := optionMap["event-name"]; ok {
-				// Option values must be type asserted from interface{}.
-				// Discordgo provides utility functions to make this simple.
 				if option.StringValue() != "" {
 					newLFG.Game = option.StringValue()
 				}
@@ -277,6 +332,26 @@ func init() {
 		case discordgo.InteractionMessageComponent:
 			if h, ok := componentHandlers[i.MessageComponentData().CustomID]; ok {
 				h(s, i)
+			}
+		case discordgo.InteractionModalSubmit:
+			messageID := i.Message.ID
+			log.Printf("handler messageID: %s\n", messageID)
+			lfg := lfgMessages[messageID]
+			if lfg == nil {
+				log.Println("lfg is nil")
+				return
+			}
+			lfg.AddYesIn(getUserName(i.Member), i.ModalSubmitData().Components[0].(*discordgo.ActionsRow).Components[0].(*discordgo.TextInput).Value)
+			fmt.Println(i.ModalSubmitData())
+			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseUpdateMessage,
+				Data: &discordgo.InteractionResponseData{
+					Components: msgComponents,
+					Embeds:     []*discordgo.MessageEmbed{lfg.GenerateEmbed()},
+				},
+			})
+			if err != nil {
+				panic(err)
 			}
 		}
 	})
