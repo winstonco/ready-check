@@ -378,6 +378,12 @@ func main() {
 		registeredCommands[i] = cmd
 	}
 
+	log.Println("Updating status...")
+	err = discord.UpdateGameStatus(0, "/lfg")
+	if err != nil {
+		log.Fatalf("Error updating game status: %v", err)
+	}
+
 	defer discord.Close()
 
 	// Wait here until CTRL-C or other term signal is received.
