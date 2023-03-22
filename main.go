@@ -41,6 +41,7 @@ type LFG struct {
 	Game      string
 	Time      string
 	NumPeople uint8
+	ToNotify  *discordgo.Role
 	CreatedBy string
 	SaidYes   []string
 	SaidYesIn []YesInType
@@ -125,6 +126,9 @@ func (lfg *LFG) Desc() string {
 	for _, e := range lfg.SaidYesIn {
 		res += fmt.Sprintf("%s is ready in %s!\n", e.name, e.time)
 	}
+	if lfg.ToNotify != nil {
+		res += fmt.Sprintf("\n%s\n", lfg.ToNotify.Mention())
+	}
 	return res
 }
 
@@ -190,6 +194,12 @@ var (
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "number-of-people",
 					Description: "The number of extra players needed",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionRole,
+					Name:        "notify-role",
+					Description: "The role to ping",
 					Required:    false,
 				},
 			},
@@ -298,6 +308,10 @@ var (
 				if option.IntValue() != 0 {
 					newLFG.NumPeople = uint8(option.IntValue())
 				}
+			}
+
+			if option, ok := optionMap["notify-role"]; ok {
+				newLFG.ToNotify = option.RoleValue(s, i.GuildID)
 			}
 
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
