@@ -85,12 +85,11 @@ var LfgHandler func(s *discordgo.Session, i *discordgo.InteractionCreate) = func
 	var toMention lfg.Mentionable
 	if option, ok := optionMap["notify"]; ok {
 		user := option.UserValue(s)
+		role := option.RoleValue(s, i.GuildID)
 		if user != nil {
 			newLFG.ToNotify = user
 			toMention = user
-		}
-		role := option.RoleValue(s, i.GuildID)
-		if role != nil {
+		} else if role != nil {
 			newLFG.ToNotify = role
 			toMention = role
 		}
